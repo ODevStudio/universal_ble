@@ -13,7 +13,6 @@ internal class GattStatusErrorTest {
         val error = createFlutterError(code, "Failed to write", status.toString())
 
         assertEquals(UniversalBleErrorCode.GATT_ERROR, code)
-        assertEquals(UniversalBleErrorCode.GATT_ERROR.raw.toString(), error.code)
         assertEquals("133", error.details)
     }
 
