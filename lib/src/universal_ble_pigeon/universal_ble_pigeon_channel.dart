@@ -74,8 +74,13 @@ class UniversalBlePigeonChannel extends UniversalBlePlatform
     String deviceId, {
     Duration? connectionTimeout,
     bool autoConnect = false,
+    ConnectionPlatformConfig? platformConfig,
   }) => _executeWithErrorHandling(
-    () => _channel.connect(deviceId, autoConnect: autoConnect),
+    () => _channel.connect(
+      deviceId,
+      autoConnect: autoConnect,
+      platformConfig: platformConfig,
+    ),
   );
 
   @override

@@ -22,9 +22,14 @@ Multi-device queue isolation + connect-lifecycle hardening (fbp-inspired).
 * Add `connectionUpdateStream` to public API — unlike `connectionStream` which emits only bool, this stream emits full `(deviceId, isConnected, error)` record so callers can log native disconnect reason codes (e.g. 'GATT_CONN_TIMEOUT') for diagnostics.
 * Add write coalescing support: `coalesceKey` parameter on `writeValue` deduplicates pending writes to the same characteristic, preventing queue bloat from rapid repeated writes.
 * Merged upstream v2.1.0 (queueId, legacy scan, Kotlin 2.x fix, manufacturer data merge)
+* Android: Fix BluetoothDevice null-safety compile error under Kotlin 2.x
+* Android: Make Android write-completion delivery thread-safe
+* Fix `BleCharacteristic` equality and `hashCode` to compare `properties` by value
+* Handle device IDs case-insensitively
 
 ## 2.1.0
 * Add optional `queueId` parameter to all APIs
+* iOS/macOS: add opt-in `AppleConnectionOptions` to `connect` (via `ConnectionPlatformConfig`) — map to `CBConnectPeripheralOptionNotifyOnConnectionKey`, `NotifyOnDisconnectionKey` and `NotifyOnNotificationKey`, so a suspended app is relaunched into the background to handle connection events (e.g. auto-reconnect while the phone is locked)
 * Android: add `legacy` to `AndroidOptions` — set `legacy: true` to scan legacy BLE 4.x advertisements (e.g. ESP32) on API 26+; default (`null`/`false`) keeps extended-advertisement scanning unchanged from prior releases
 * Android: add `addServicesInScanResponse` to `PeripheralAndroidOptions` - set `addServicesInScanResponse: true` to Put advertised service UUIDs in the scan response instead of the primary advertisement
 * Android: merge manufacturer data with duplicate company id in scan results

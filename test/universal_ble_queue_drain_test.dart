@@ -22,6 +22,7 @@ class _QueueDrainMockPlatform extends UniversalBlePlatformMock {
     String deviceId, {
     Duration? connectionTimeout,
     bool autoConnect = false,
+    ConnectionPlatformConfig? platformConfig,
   }) async {
     // Never completes the connection — simulates a hung connect attempt.
   }
@@ -104,6 +105,28 @@ void main() {
       );
 
       // The in-flight command cannot be cancelled; it fails via its timeout.
+      await expectLater(inFlight, throwsA(isA<TimeoutException>()));
+    });
+
+    test('matches disconnect device IDs case-insensitively', () async {
+      mock.hangingWrites.add('DEVICE-A');
+
+      final inFlight = write('DEVICE-A', timeout: const Duration(seconds: 1));
+      final pending = write('DEVICE-A');
+
+      await pumpEventQueue();
+      mock.updateConnection('device-a', false);
+
+      await expectLater(
+        pending.timeout(const Duration(milliseconds: 500)),
+        throwsA(
+          isA<UniversalBleException>().having(
+            (e) => e.code,
+            'code',
+            UniversalBleErrorCode.deviceDisconnected,
+          ),
+        ),
+      );
       await expectLater(inFlight, throwsA(isA<TimeoutException>()));
     });
 

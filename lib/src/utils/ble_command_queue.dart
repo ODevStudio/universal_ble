@@ -33,7 +33,7 @@ class BleCommandQueue {
         timeoutDuration,
         coalesceKey,
       ),
-      QueueType.perDevice => _queue(queueId ?? deviceId).add(
+      QueueType.perDevice => _queue(queueId ?? deviceId?.toLowerCase()).add(
         command,
         timeoutDuration,
         coalesceKey,
@@ -54,7 +54,7 @@ class BleCommandQueue {
         null,
         coalesceKey,
       ),
-      QueueType.perDevice => _queue(queueId ?? deviceId).add(
+      QueueType.perDevice => _queue(queueId ?? deviceId?.toLowerCase()).add(
         command,
         null,
         coalesceKey,
@@ -84,8 +84,9 @@ class BleCommandQueue {
       _queueMap.forEach((k, v) => v.dispose(error));
       _queueMap.clear();
     } else {
-      _queueMap[id]?.dispose(error);
-      _queueMap.remove(id);
+      final queueKey = _queueMap.containsKey(id) ? id : id.toLowerCase();
+      _queueMap[queueKey]?.dispose(error);
+      _queueMap.remove(queueKey);
     }
   }
 }

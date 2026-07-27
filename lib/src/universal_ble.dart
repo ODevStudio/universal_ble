@@ -191,11 +191,16 @@ class UniversalBle {
   ///
   /// Call [disconnect] to prevent auto-reconnect even while a device is disconnected.
   ///
+  /// [platformConfig] sets platform specific connection options,
+  /// e.g. [AppleConnectionOptions] to get notified of connection events
+  /// while the app is suspended. Ignored on other platforms.
+  ///
   /// Can throw `ConnectionException` or `PlatformException`.
   static Future<void> connect(
     String deviceId, {
     Duration? timeout,
     bool autoConnect = false,
+    ConnectionPlatformConfig? platformConfig,
   }) async {
     timeout ??= const Duration(seconds: 60);
     Completer<bool> completer = _connectionEventCompleter(
@@ -204,7 +209,12 @@ class UniversalBle {
     );
 
     _platform
-        .connect(deviceId, connectionTimeout: timeout, autoConnect: autoConnect)
+        .connect(
+          deviceId,
+          connectionTimeout: timeout,
+          autoConnect: autoConnect,
+          platformConfig: platformConfig,
+        )
         .catchError((error) {
           if (completer.isCompleted) return;
           completer.completeError(ConnectionException(error));
@@ -742,6 +752,7 @@ class UniversalBle {
     Duration? timeout,
   }) {
     timeout ??= const Duration(seconds: 60);
+    final target = deviceId.toLowerCase();
     StreamSubscription? connectionSubscription;
     Completer<bool> completer = Completer();
 
@@ -759,7 +770,7 @@ class UniversalBle {
     connectionSubscription = _platform
         .bleConnectionUpdateStreamController
         .stream
-        .where((e) => e.deviceId == deviceId)
+        .where((e) => e.deviceId == deviceId || e.deviceId.toLowerCase() == target)
         .listen(
           (e) {
             cancelSubscription();
