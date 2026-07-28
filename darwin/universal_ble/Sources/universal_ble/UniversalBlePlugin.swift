@@ -209,6 +209,10 @@ private class BleCentralDarwin: NSObject, UniversalBlePlatformChannel, CBCentral
   func connect(deviceId: String, autoConnect: Bool?, platformConfig: ConnectionPlatformConfig?) throws {
     let peripheral = try deviceId.getPeripheral(manager: manager)
     peripheral.delegate = self
+    if peripheral.state == .connected {
+      callbackChannel.onConnectionChanged(deviceId: deviceId, connected: true, error: nil) { _ in }
+      return
+    }
     let shouldAutoConnect = autoConnect ?? false
 
     var options: [String: Any] = [:]
