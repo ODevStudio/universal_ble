@@ -480,3 +480,12 @@ internal fun remainingReconnectDelay(
     if (lastDisconnectMs == null) return 0
     return (minimumGapMs - (nowMs - lastDisconnectMs)).coerceAtLeast(0)
 }
+
+internal fun executePendingConnect(connect: () -> Unit): Exception? {
+    return try {
+        connect()
+        null
+    } catch (error: Exception) {
+        error
+    }
+}

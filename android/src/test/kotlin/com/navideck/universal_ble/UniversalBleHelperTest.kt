@@ -124,6 +124,14 @@ internal class UniversalBleHelperTest {
         assertEquals(0L, remainingReconnectDelay(10_000, 7_000, 2_000))
     }
 
+    @Test
+    fun pendingConnectReturnsStartupFailure() {
+        val failure = executePendingConnect { throw IllegalStateException("failed") }
+
+        assertEquals("failed", failure?.message)
+        assertEquals(null, executePendingConnect {})
+    }
+
     private fun manufacturerAd(companyId: Int, payload: ByteArray): ByteArray {
         val companyBytes = byteArrayOf(
             (companyId and 0xFF).toByte(),
