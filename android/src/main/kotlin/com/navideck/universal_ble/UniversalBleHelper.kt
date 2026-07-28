@@ -471,3 +471,12 @@ class RssiResultFuture(
     val deviceId: String,
     val result: (Result<Long>) -> Unit,
 )
+
+internal fun remainingReconnectDelay(
+    nowMs: Long,
+    lastDisconnectMs: Long?,
+    minimumGapMs: Long,
+): Long {
+    if (lastDisconnectMs == null) return 0
+    return (minimumGapMs - (nowMs - lastDisconnectMs)).coerceAtLeast(0)
+}

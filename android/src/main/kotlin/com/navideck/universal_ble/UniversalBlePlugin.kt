@@ -22,6 +22,7 @@ import android.content.IntentFilter
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -74,7 +75,10 @@ class UniversalBlePlugin : UniversalBlePlatformChannel, BluetoothGattCallback(),
     // Enforce a minimum gap, like flutter_blue_plus' androidDelay.
     // https://issuetracker.google.com/issues/37121040
     private val connectTimestamps = mutableMapOf<String, Long>()
+    private val disconnectTimestamps = mutableMapOf<String, Long>()
+    private val pendingConnects = mutableMapOf<String, Runnable>()
     private val minConnectDisconnectGapMs = 2000L
+    private val minDisconnectConnectGapMs = 2000L
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         context = flutterPluginBinding.applicationContext
@@ -106,6 +110,9 @@ class UniversalBlePlugin : UniversalBlePlatformChannel, BluetoothGattCallback(),
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         bluetoothManager.adapter.bluetoothLeScanner?.stopScan(scanCallback)
+        pendingConnects.values.forEach { mainThreadHandler?.removeCallbacks(it) }
+        pendingConnects.clear()
+        disconnectTimestamps.clear()
         context.unregisterReceiver(broadcastReceiver)
         peripheralPlugin.dispose()
         UniversalBlePeripheralChannel.setUp(binding.binaryMessenger, null)
@@ -287,11 +294,51 @@ class UniversalBlePlugin : UniversalBlePlatformChannel, BluetoothGattCallback(),
             }
         }
 
+        if (pendingConnects.containsKey(deviceId)) {
+            throw createFlutterError(
+                UniversalBleErrorCode.CONNECTION_IN_PROGRESS,
+                "Connection already scheduled"
+            )
+        }
+
         val shouldAutoConnect = autoConnect ?: false
         if (shouldAutoConnect) {
             autoConnectDevices.add(deviceId)
         } else {
             autoConnectDevices.remove(deviceId)
+        }
+        val reconnectDelay = remainingReconnectDelay(
+            SystemClock.elapsedRealtime(),
+            disconnectTimestamps[deviceId],
+            minDisconnectConnectGapMs,
+        )
+        if (reconnectDelay > 0) {
+            UniversalBleLogger.logDebug(
+                "Delaying connect of $deviceId by ${reconnectDelay}ms (disconnect-connect gap)"
+            )
+            val pendingConnect = Runnable {
+                pendingConnects.remove(deviceId)
+                disconnectTimestamps.remove(deviceId)
+                connectNow(deviceId, shouldAutoConnect)
+            }
+            pendingConnects[deviceId] = pendingConnect
+            mainThreadHandler?.postDelayed(pendingConnect, reconnectDelay)
+            return
+        }
+        disconnectTimestamps.remove(deviceId)
+        connectNow(deviceId, shouldAutoConnect)
+    }
+
+    private fun connectNow(deviceId: String, shouldAutoConnect: Boolean) {
+        deviceId.findGatt()?.let {
+            val currentState = bluetoothManager.getConnectionState(it.device, BluetoothProfile.GATT)
+            if (currentState == BluetoothGatt.STATE_CONNECTED) {
+                mainThreadHandler?.post {
+                    callbackChannel?.onConnectionChanged(deviceId, true, null) {}
+                }
+                return
+            }
+            if (currentState == BluetoothGatt.STATE_CONNECTING) return
         }
         val remoteDevice = bluetoothManager.adapter.getRemoteDevice(deviceId)
         val gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -310,12 +357,11 @@ class UniversalBlePlugin : UniversalBlePlatformChannel, BluetoothGattCallback(),
 
     override fun disconnect(deviceId: String) {
         autoConnectDevices.remove(deviceId)
+        pendingConnects.remove(deviceId)?.let { mainThreadHandler?.removeCallbacks(it) }
         val gatt = deviceId.findGatt()
         if (gatt == null) {
             cleanUpConnection(deviceId)
-            mainThreadHandler?.post {
-                callbackChannel?.onConnectionChanged(deviceId, false, null) {}
-            }
+            notifyDisconnected(deviceId, null)
             return
         }
         val elapsed = System.currentTimeMillis() - (connectTimestamps[deviceId] ?: 0L)
@@ -1240,9 +1286,14 @@ class UniversalBlePlugin : UniversalBlePlatformChannel, BluetoothGattCallback(),
         if (state != BluetoothProfile.STATE_CONNECTED) {
             connectTimestamps.remove(deviceId)
             gatt.close()
-            mainThreadHandler?.post {
-                callbackChannel?.onConnectionChanged(deviceId, false, null) {}
-            }
+            notifyDisconnected(deviceId, null)
+        }
+    }
+
+    private fun notifyDisconnected(deviceId: String, error: String?) {
+        mainThreadHandler?.post {
+            disconnectTimestamps[deviceId] = SystemClock.elapsedRealtime()
+            callbackChannel?.onConnectionChanged(deviceId, false, error) {}
         }
     }
 
@@ -1259,6 +1310,10 @@ class UniversalBlePlugin : UniversalBlePlatformChannel, BluetoothGattCallback(),
     // goes down, so fail them here and close the GATT clients — leaked
     // clients (capped at 32 system-wide) later surface as GATT 133.
     private fun cleanUpOnAdapterOff() {
+        val pendingDeviceIds = pendingConnects.keys.toList()
+        pendingConnects.values.forEach { mainThreadHandler?.removeCallbacks(it) }
+        pendingConnects.clear()
+        pendingDeviceIds.forEach { notifyDisconnected(it, "ADAPTER_OFF") }
         for (gatt in allKnownGatts()) {
             val deviceId = gatt.device.address
             cleanUpConnection(deviceId)
@@ -1269,9 +1324,7 @@ class UniversalBlePlugin : UniversalBlePlatformChannel, BluetoothGattCallback(),
             } catch (e: Exception) {
                 UniversalBleLogger.logError("Failed to close gatt for $deviceId: $e")
             }
-            mainThreadHandler?.post {
-                callbackChannel?.onConnectionChanged(deviceId, false, "ADAPTER_OFF") {}
-            }
+            notifyDisconnected(deviceId, "ADAPTER_OFF")
         }
         autoConnectDevices.clear()
     }
@@ -1402,11 +1455,7 @@ class UniversalBlePlugin : UniversalBlePlatformChannel, BluetoothGattCallback(),
             cleanUpConnection(deviceId)
 
             // Send connection changed callback
-            mainThreadHandler?.post {
-                callbackChannel?.onConnectionChanged(
-                    deviceId, false, status.parseHciErrorCode()
-                ) {}
-            }
+            notifyDisconnected(deviceId, status.parseHciErrorCode())
 
             // NOTE: no native GATT-133 retry here (removed 2026-07-14).
             // The status is surfaced to Dart via onConnectionChanged

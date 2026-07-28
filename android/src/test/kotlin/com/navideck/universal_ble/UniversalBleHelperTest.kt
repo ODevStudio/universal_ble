@@ -116,6 +116,14 @@ internal class UniversalBleHelperTest {
         assertTrue(scanResult.manufacturerDataList.isEmpty())
     }
 
+    @Test
+    fun reconnectDelayHonorsMinimumGap() {
+        assertEquals(0L, remainingReconnectDelay(10_000, null, 2_000))
+        assertEquals(1_500L, remainingReconnectDelay(10_000, 9_500, 2_000))
+        assertEquals(0L, remainingReconnectDelay(10_000, 8_000, 2_000))
+        assertEquals(0L, remainingReconnectDelay(10_000, 7_000, 2_000))
+    }
+
     private fun manufacturerAd(companyId: Int, payload: ByteArray): ByteArray {
         val companyBytes = byteArrayOf(
             (companyId and 0xFF).toByte(),
