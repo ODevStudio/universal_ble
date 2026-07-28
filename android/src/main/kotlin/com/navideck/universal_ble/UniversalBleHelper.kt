@@ -68,8 +68,10 @@ fun String.isKnownGatt(): Boolean {
 }
 
 fun String.findGatt(): BluetoothGatt? {
-    return knownGatts[this]
+    return knownGatts[connectionKey()]
 }
+
+internal fun String.connectionKey(): String = uppercase()
 
 fun BluetoothManager.isBluetoothEnabled(): Boolean {
     return adapter?.isEnabled == true
@@ -108,11 +110,11 @@ fun Context.registerReceiverCompat(
 }
 
 fun BluetoothGatt.saveCacheIfNeeded() {
-    knownGatts[this.device.address] = this
+    knownGatts[this.device.address.connectionKey()] = this
 }
 
 fun BluetoothGatt.removeCache() {
-    knownGatts.remove(this.device.address)
+    knownGatts.remove(this.device.address.connectionKey())
 }
 
 fun allKnownGatts(): List<BluetoothGatt> = knownGatts.values.toList()

@@ -275,6 +275,7 @@ class UniversalBlePlugin : UniversalBlePlatformChannel, BluetoothGattCallback(),
         autoConnect: Boolean?,
         platformConfig: ConnectionPlatformConfig?,
     ) {
+        val connectionKey = deviceId.connectionKey()
         // Note: platformConfig only carries Apple-specific options
         // If already connected, send connected message,
         // if connecting, do nothing
@@ -294,7 +295,7 @@ class UniversalBlePlugin : UniversalBlePlatformChannel, BluetoothGattCallback(),
             }
         }
 
-        if (pendingConnects.containsKey(deviceId)) {
+        if (pendingConnects.containsKey(connectionKey)) {
             throw createFlutterError(
                 UniversalBleErrorCode.CONNECTION_IN_PROGRESS,
                 "Connection already scheduled"
@@ -303,13 +304,13 @@ class UniversalBlePlugin : UniversalBlePlatformChannel, BluetoothGattCallback(),
 
         val shouldAutoConnect = autoConnect ?: false
         if (shouldAutoConnect) {
-            autoConnectDevices.add(deviceId)
+            autoConnectDevices.add(connectionKey)
         } else {
-            autoConnectDevices.remove(deviceId)
+            autoConnectDevices.remove(connectionKey)
         }
         val reconnectDelay = remainingReconnectDelay(
             SystemClock.elapsedRealtime(),
-            disconnectTimestamps[deviceId],
+            disconnectTimestamps[connectionKey],
             minDisconnectConnectGapMs,
         )
         if (reconnectDelay > 0) {
@@ -320,15 +321,15 @@ class UniversalBlePlugin : UniversalBlePlatformChannel, BluetoothGattCallback(),
             pendingConnect = Runnable {
                 val remainingDelay = remainingReconnectDelay(
                     SystemClock.elapsedRealtime(),
-                    disconnectTimestamps[deviceId],
+                    disconnectTimestamps[connectionKey],
                     minDisconnectConnectGapMs,
                 )
                 executePendingConnect(
                     remainingDelay,
                     { delay -> mainThreadHandler?.postDelayed(pendingConnect, delay) },
                 ) {
-                    pendingConnects.remove(deviceId)
-                    disconnectTimestamps.remove(deviceId)
+                    pendingConnects.remove(connectionKey)
+                    disconnectTimestamps.remove(connectionKey)
                     connectNow(deviceId, shouldAutoConnect)
                 }?.let { error ->
                     UniversalBleLogger.logError(
@@ -340,11 +341,11 @@ class UniversalBlePlugin : UniversalBlePlatformChannel, BluetoothGattCallback(),
                     )
                 }
             }
-            pendingConnects[deviceId] = pendingConnect
+            pendingConnects[connectionKey] = pendingConnect
             mainThreadHandler?.postDelayed(pendingConnect, reconnectDelay)
             return
         }
-        disconnectTimestamps.remove(deviceId)
+        disconnectTimestamps.remove(connectionKey)
         connectNow(deviceId, shouldAutoConnect)
     }
 
@@ -375,8 +376,9 @@ class UniversalBlePlugin : UniversalBlePlatformChannel, BluetoothGattCallback(),
     }
 
     override fun disconnect(deviceId: String) {
-        autoConnectDevices.remove(deviceId)
-        pendingConnects.remove(deviceId)?.let { mainThreadHandler?.removeCallbacks(it) }
+        val connectionKey = deviceId.connectionKey()
+        autoConnectDevices.remove(connectionKey)
+        pendingConnects.remove(connectionKey)?.let { mainThreadHandler?.removeCallbacks(it) }
         val gatt = deviceId.findGatt()
         if (gatt == null) {
             cleanUpConnection(deviceId)
@@ -1311,7 +1313,7 @@ class UniversalBlePlugin : UniversalBlePlatformChannel, BluetoothGattCallback(),
 
     private fun notifyDisconnected(deviceId: String, error: String?) {
         mainThreadHandler?.post {
-            disconnectTimestamps[deviceId] = SystemClock.elapsedRealtime()
+            disconnectTimestamps[deviceId.connectionKey()] = SystemClock.elapsedRealtime()
             callbackChannel?.onConnectionChanged(deviceId, false, error) {}
         }
     }
@@ -1461,13 +1463,16 @@ class UniversalBlePlugin : UniversalBlePlatformChannel, BluetoothGattCallback(),
 
         if (newState == BluetoothGatt.STATE_CONNECTED) {
             mainThreadHandler?.post {
+                val connectionKey = gatt.device.address.connectionKey()
+                pendingConnects.remove(connectionKey)?.let { mainThreadHandler?.removeCallbacks(it) }
+                disconnectTimestamps.remove(connectionKey)
                 callbackChannel?.onConnectionChanged(
                     gatt.device.address, true, status.parseHciErrorCode()
                 ) {}
             }
         } else if (newState == BluetoothGatt.STATE_DISCONNECTED) {
             val deviceId = gatt.device.address
-            val shouldAutoConnect = autoConnectDevices.contains(deviceId)
+            val shouldAutoConnect = autoConnectDevices.contains(deviceId.connectionKey())
 
             // Always clean up internal state (futures, etc.)
             connectTimestamps.remove(deviceId)
