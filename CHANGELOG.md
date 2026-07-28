@@ -1,13 +1,20 @@
+## 2.2.1
+
+Queue timeout recovery and diagnostics.
+
+* **BREAKING (behavior)**: a queued command timeout now faults that queue generation because Dart cannot cancel its underlying native Future. Pending and new commands fail with `operationCancelled` until the queue is explicitly cleared or its per-device connection disconnects; late native completion cannot dispatch them. `QueueType.none` remains unprotected by design.
+* Add `getQueueDiagnostics(id)` with payload-free pending/unresolved-active counts and a dedicated `QueueDiagnosticsState`; clear results retain the existing `QueueLifecycleState` values.
+* Add `UniversalBle.globalQueueId` for targeted recovery of the global queue without importing internal implementation files.
+* Replacing the `UniversalBle` platform instance now wires the replacement before clearing old queue generations, so re-entrant commands from clear callbacks use the new platform and old fault state cannot leak across instances.
+* Add `clearQueueWithError(id, error: ...)` to complete pending commands in a selected queue with the caller-supplied error. Existing `clearQueue()` calls keep their default cancellation behavior; already-running BLE operations are not cancelled.
+* Add `clearQueueWithResult()` with deterministic per-queue and aggregate cancellation diagnostics, including pending/active counts, typed error codes, and final queue state without BLE payloads.
+
 ## 2.2.0
 
 Multi-device queue isolation + connect-lifecycle hardening (fbp-inspired).
 
 * **BREAKING**: `disconnect()` no longer goes through the command queue (its `queueId` parameter was removed). Teardown must never wait behind pending — possibly stalled — commands of the device being torn down. Writes you `await` before disconnecting still complete first.
 * Queue drain on disconnect: when a device disconnects, its pending queued commands fail immediately with `UniversalBleErrorCode.deviceDisconnected` instead of each burning its own timeout. Only queues keyed by deviceId are affected (`QueueType.perDevice`); the global queue and custom `queueId` queues are untouched.
-* **BREAKING (behavior)**: a queued command timeout now faults that queue generation because Dart cannot cancel its underlying native Future. Pending and new commands fail with `operationCancelled` until the queue is explicitly cleared or its per-device connection disconnects; late native completion cannot dispatch them. `QueueType.none` remains unprotected by design.
-* Add `getQueueDiagnostics(id)` with payload-free pending/unresolved-active counts and a dedicated `QueueDiagnosticsState`; clear results retain the existing `QueueLifecycleState` values.
-* Add `UniversalBle.globalQueueId` for targeted recovery of the global queue without importing internal implementation files.
-* Replacing the `UniversalBle` platform instance now wires the replacement before clearing old queue generations, so re-entrant commands from clear callbacks use the new platform and old fault state cannot leak across instances.
 * `connect()` timeout now cancels the pending native connect attempt (best-effort platform disconnect). Previously the OS could complete the connection later with nobody listening — a stranded "zombie" link.
 * **BREAKING (behavior)**: removed the Android-native GATT-133 retry added in 2.1.1. It forwarded the disconnect to Dart *before* retrying, so app-level reconnects raced the native retry with competing `connectGatt` clients — itself a classic 133 cause. GATT-133 is still surfaced as `gattError`; retry policy belongs to the caller, which should retry only operations that are safe to repeat.
 * Android: enforce a 2s minimum gap between `connectGatt` and disconnect (flutter_blue_plus `androidDelay` pattern, Google issue 37121040) to avoid stranding connections the stack no longer tracks.
@@ -15,8 +22,6 @@ Multi-device queue isolation + connect-lifecycle hardening (fbp-inspired).
 * Android: on adapter off, fail all pending operations and close all GATT clients (Android does not reliably deliver per-device callbacks when the adapter goes down). Devices report disconnect with error `"ADAPTER_OFF"`.
 * Add `UniversalBle.scanFailureStream` + `onScanFailure` — surfaces Android `ScanCallback.onScanFailed`, previously swallowed (log-only). Notably `ScanFailureReason.scanningTooFrequently` (Android's 5-scans/30s throttle), which is otherwise indistinguishable from an empty scan.
 * Add `UniversalBle.clearGattCache(deviceId)` (Android only, `BleCapabilities.supportsClearGattCacheApi`) — clears Android's GATT service cache via `BluetoothGatt#refresh()`; remedy for stale service caches after peripheral firmware updates.
-* Add `clearQueueWithError(id, error: ...)` to complete pending commands in a selected queue with the caller-supplied error. Existing `clearQueue()` calls keep their default cancellation behavior; already-running BLE operations are not cancelled.
-* Add `clearQueueWithResult()` with deterministic per-queue and aggregate cancellation diagnostics, including pending/active counts, typed error codes, and final queue state without BLE payloads.
 * Removed stale plugin-template Kotlin test that referenced a nonexistent `onMethodCall` and broke `testDebugUnitTest` compilation.
 
 ## 2.1.2
