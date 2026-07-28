@@ -319,7 +319,17 @@ class UniversalBlePlugin : UniversalBlePlatformChannel, BluetoothGattCallback(),
             val pendingConnect = Runnable {
                 pendingConnects.remove(deviceId)
                 disconnectTimestamps.remove(deviceId)
-                connectNow(deviceId, shouldAutoConnect)
+                executePendingConnect {
+                    connectNow(deviceId, shouldAutoConnect)
+                }?.let { error ->
+                    UniversalBleLogger.logError(
+                        "Delayed connect start failed for $deviceId: $error"
+                    )
+                    notifyDisconnected(
+                        deviceId,
+                        "CONNECT_START_FAILED: ${error.message ?: error.javaClass.simpleName}"
+                    )
+                }
             }
             pendingConnects[deviceId] = pendingConnect
             mainThreadHandler?.postDelayed(pendingConnect, reconnectDelay)
