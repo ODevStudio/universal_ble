@@ -132,6 +132,27 @@ internal class UniversalBleHelperTest {
         assertEquals(null, executePendingConnect {})
     }
 
+    @Test
+    fun laterDisconnectExtendsPendingCooldown() {
+        var scheduledDelay = 0L
+        var connectCalls = 0
+
+        executePendingConnect(
+            remainingReconnectDelay(2_000, 1_500, 2_000),
+            { scheduledDelay = it },
+        ) { connectCalls++ }
+
+        assertEquals(1_500L, scheduledDelay)
+        assertEquals(0, connectCalls)
+
+        executePendingConnect(
+            remainingReconnectDelay(3_500, 1_500, 2_000),
+            { scheduledDelay = it },
+        ) { connectCalls++ }
+
+        assertEquals(1, connectCalls)
+    }
+
     private fun manufacturerAd(companyId: Int, payload: ByteArray): ByteArray {
         val companyBytes = byteArrayOf(
             (companyId and 0xFF).toByte(),
