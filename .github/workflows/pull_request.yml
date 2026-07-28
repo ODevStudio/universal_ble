@@ -25,6 +25,19 @@ jobs:
       - name: Run Flutter tests
         run: flutter test
 
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Run Android unit tests
+        working-directory: example
+        run: |
+          flutter pub get
+          printf 'flutter.sdk=%s\n' "$FLUTTER_ROOT" > android/local.properties
+          cd android
+          gradle :universal_ble:testDebugUnitTest
+
       - name: Install Chrome
         uses: browser-actions/setup-chrome@latest
 
