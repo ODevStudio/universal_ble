@@ -1332,10 +1332,10 @@ class UniversalBlePlugin : UniversalBlePlatformChannel, BluetoothGattCallback(),
     // clients (capped at 32 system-wide) later surface as GATT 133.
     private fun cleanUpOnAdapterOff() {
         val pendingDeviceIds = pendingConnects.keys.toList()
+        val knownGatts = allKnownGatts()
         pendingConnects.values.forEach { mainThreadHandler?.removeCallbacks(it) }
         pendingConnects.clear()
-        pendingDeviceIds.forEach { notifyDisconnected(it, "ADAPTER_OFF") }
-        for (gatt in allKnownGatts()) {
+        for (gatt in knownGatts) {
             val deviceId = gatt.device.address
             cleanUpConnection(deviceId)
             connectTimestamps.remove(deviceId)
@@ -1345,8 +1345,10 @@ class UniversalBlePlugin : UniversalBlePlatformChannel, BluetoothGattCallback(),
             } catch (e: Exception) {
                 UniversalBleLogger.logError("Failed to close gatt for $deviceId: $e")
             }
-            notifyDisconnected(deviceId, "ADAPTER_OFF")
         }
+        (pendingDeviceIds + knownGatts.map { it.device.address })
+            .distinctBy { it.connectionKey() }
+            .forEach { notifyDisconnected(it, "ADAPTER_OFF") }
         autoConnectDevices.clear()
     }
 
