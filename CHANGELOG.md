@@ -1,3 +1,7 @@
+## 2.2.2
+
+* iOS/macOS: connecting a peripheral returned by `getSystemDevices()` now attaches to an existing system connection and reports it as connected.
+
 ## 2.2.1
 
 Queue timeout recovery and diagnostics.
