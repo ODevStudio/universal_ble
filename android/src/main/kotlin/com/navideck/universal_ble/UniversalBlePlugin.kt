@@ -316,10 +316,19 @@ class UniversalBlePlugin : UniversalBlePlatformChannel, BluetoothGattCallback(),
             UniversalBleLogger.logDebug(
                 "Delaying connect of $deviceId by ${reconnectDelay}ms (disconnect-connect gap)"
             )
-            val pendingConnect = Runnable {
-                pendingConnects.remove(deviceId)
-                disconnectTimestamps.remove(deviceId)
-                executePendingConnect {
+            lateinit var pendingConnect: Runnable
+            pendingConnect = Runnable {
+                val remainingDelay = remainingReconnectDelay(
+                    SystemClock.elapsedRealtime(),
+                    disconnectTimestamps[deviceId],
+                    minDisconnectConnectGapMs,
+                )
+                executePendingConnect(
+                    remainingDelay,
+                    { delay -> mainThreadHandler?.postDelayed(pendingConnect, delay) },
+                ) {
+                    pendingConnects.remove(deviceId)
+                    disconnectTimestamps.remove(deviceId)
                     connectNow(deviceId, shouldAutoConnect)
                 }?.let { error ->
                     UniversalBleLogger.logError(
