@@ -1,12 +1,20 @@
 package com.navideck.universal_ble
 
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
+import android.bluetooth.BluetoothManager
+import android.content.Context
 import android.os.Handler
+import android.os.SystemClock
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import org.mockito.ArgumentMatchers.any
+import org.mockito.ArgumentMatchers.eq
 import org.mockito.Mockito.mock
+import org.mockito.Mockito.mockStatic
+import org.mockito.Mockito.never
 import org.mockito.Mockito.times
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when`
@@ -77,6 +85,73 @@ internal class UniversalBlePluginTest {
 
         verify(handler).removeCallbacks(pendingConnect)
         verify(handler, times(1)).post(any(Runnable::class.java))
+    }
+
+    @Test
+    fun mixedCaseDisconnectKeepsConnectDisconnectDelay() {
+        val plugin = UniversalBlePlugin()
+        val handler = handler()
+        val manager = mock(BluetoothManager::class.java)
+        val adapter = mock(BluetoothAdapter::class.java)
+        val device = mock(BluetoothDevice::class.java)
+        val gatt = mock(BluetoothGatt::class.java)
+        val context = mock(Context::class.java)
+        val deviceId = "AA:BB:CC:DD:EE:FF"
+        val connectTimestamps = plugin.field<MutableMap<String, Long>>("connectTimestamps")
+
+        plugin.setField("mainThreadHandler", handler)
+        plugin.setField("bluetoothManager", manager)
+        plugin.setField("context", context)
+        `when`(manager.adapter).thenReturn(adapter)
+        `when`(adapter.getRemoteDevice(deviceId)).thenReturn(device)
+        `when`(device.connectGatt(context, false, plugin)).thenReturn(gatt)
+        `when`(gatt.device).thenReturn(device)
+        `when`(device.address).thenReturn(deviceId)
+
+        mockStatic(SystemClock::class.java).use { clock ->
+            clock.`when`<Long> { SystemClock.elapsedRealtime() }
+                .thenReturn(1_000L, 1_000L, 1_500L)
+            plugin.connect(deviceId, false, null)
+            plugin.disconnect(deviceId.lowercase())
+        }
+
+        try {
+            assertEquals(1_000L, connectTimestamps[deviceId.connectionKey()])
+            verify(handler).postDelayed(any(Runnable::class.java), eq(1_500L))
+            verify(gatt, never()).disconnect()
+        } finally {
+            gatt.removeCache()
+        }
+    }
+
+    @Test
+    fun nativeDisconnectRemovesMixedCaseConnectTimestamp() {
+        val plugin = UniversalBlePlugin()
+        val handler = handler()
+        val manager = mock(BluetoothManager::class.java)
+        val adapter = mock(BluetoothAdapter::class.java)
+        val device = mock(BluetoothDevice::class.java)
+        val gatt = mock(BluetoothGatt::class.java)
+        val context = mock(Context::class.java)
+        val deviceId = "AA:BB:CC:DD:EE:FF"
+        val connectTimestamps = plugin.field<MutableMap<String, Long>>("connectTimestamps")
+
+        plugin.setField("mainThreadHandler", handler)
+        plugin.setField("bluetoothManager", manager)
+        plugin.setField("context", context)
+        `when`(manager.adapter).thenReturn(adapter)
+        `when`(adapter.getRemoteDevice(deviceId.lowercase())).thenReturn(device)
+        `when`(device.connectGatt(context, false, plugin)).thenReturn(gatt)
+        `when`(gatt.device).thenReturn(device)
+        `when`(device.address).thenReturn(deviceId)
+
+        mockStatic(SystemClock::class.java).use { clock ->
+            clock.`when`<Long> { SystemClock.elapsedRealtime() }.thenReturn(1_000L)
+            plugin.connect(deviceId.lowercase(), false, null)
+        }
+        plugin.onConnectionStateChange(gatt, BluetoothGatt.GATT_SUCCESS, BluetoothGatt.STATE_DISCONNECTED)
+
+        assertFalse(connectTimestamps.containsKey(deviceId.connectionKey()))
     }
 
     private fun handler(runPostedTasks: Boolean = false): Handler {

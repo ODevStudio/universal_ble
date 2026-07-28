@@ -350,6 +350,7 @@ class UniversalBlePlugin : UniversalBlePlatformChannel, BluetoothGattCallback(),
     }
 
     private fun connectNow(deviceId: String, shouldAutoConnect: Boolean) {
+        val connectionKey = deviceId.connectionKey()
         deviceId.findGatt()?.let {
             val currentState = bluetoothManager.getConnectionState(it.device, BluetoothProfile.GATT)
             if (currentState == BluetoothGatt.STATE_CONNECTED) {
@@ -371,7 +372,7 @@ class UniversalBlePlugin : UniversalBlePlatformChannel, BluetoothGattCallback(),
         } else {
             remoteDevice.connectGatt(context, shouldAutoConnect, this)
         }
-        connectTimestamps[deviceId] = System.currentTimeMillis()
+        connectTimestamps[connectionKey] = SystemClock.elapsedRealtime()
         gatt.saveCacheIfNeeded()
     }
 
@@ -385,7 +386,7 @@ class UniversalBlePlugin : UniversalBlePlatformChannel, BluetoothGattCallback(),
             notifyDisconnected(deviceId, null)
             return
         }
-        val elapsed = System.currentTimeMillis() - (connectTimestamps[deviceId] ?: 0L)
+        val elapsed = SystemClock.elapsedRealtime() - (connectTimestamps[connectionKey] ?: 0L)
         val remaining = minConnectDisconnectGapMs - elapsed
         if (remaining > 0) {
             UniversalBleLogger.logDebug(
@@ -1305,7 +1306,7 @@ class UniversalBlePlugin : UniversalBlePlatformChannel, BluetoothGattCallback(),
         // and exhaustion surfaces as GATT 133 elsewhere).
         val state = bluetoothManager.getConnectionState(gatt.device, BluetoothProfile.GATT)
         if (state != BluetoothProfile.STATE_CONNECTED) {
-            connectTimestamps.remove(deviceId)
+            connectTimestamps.remove(deviceId.connectionKey())
             gatt.close()
             notifyDisconnected(deviceId, null)
         }
@@ -1338,7 +1339,7 @@ class UniversalBlePlugin : UniversalBlePlatformChannel, BluetoothGattCallback(),
         for (gatt in knownGatts) {
             val deviceId = gatt.device.address
             cleanUpConnection(deviceId)
-            connectTimestamps.remove(deviceId)
+            connectTimestamps.remove(deviceId.connectionKey())
             gatt.removeCache()
             try {
                 gatt.close()
@@ -1477,7 +1478,7 @@ class UniversalBlePlugin : UniversalBlePlatformChannel, BluetoothGattCallback(),
             val shouldAutoConnect = autoConnectDevices.contains(deviceId.connectionKey())
 
             // Always clean up internal state (futures, etc.)
-            connectTimestamps.remove(deviceId)
+            connectTimestamps.remove(deviceId.connectionKey())
             cleanUpConnection(deviceId)
 
             // Send connection changed callback
